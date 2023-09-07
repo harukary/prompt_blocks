@@ -1,4 +1,5 @@
 .venv
+.env
 Pipfile*
 
 *.egg-info
