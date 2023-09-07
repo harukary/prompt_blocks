@@ -14,3 +14,4 @@ block = {
 import prompt_blocks.util
 import prompt_blocks.opensearch_client
 import prompt_blocks.openai_util
+import prompt_blocks.langchain_util

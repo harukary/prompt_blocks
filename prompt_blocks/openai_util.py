@@ -15,7 +15,7 @@ def get_embeddings(texts):
     )
     return [r["embedding"] for r in res["data"]]
 
-def chat_complete(messages, model="gpt-3.5-turbo-0613", max_tokens=1024, temperature=0.5, stream=False, debug=False):
+def chat_complete(messages, model="gpt-3.5-turbo-0613", max_tokens=None, temperature=0.5, stream=False, debug=False):
     if debug:
         for m in messages:
             print(m["role"],'\t\t',"-"*30)
