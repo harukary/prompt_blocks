@@ -1,6 +1,7 @@
 import json
-from langchain.output_parsers.format_instructions import PYDANTIC_FORMAT_INSTRUCTIONS
+
 from langchain.output_parsers import PydanticOutputParser
+from langchain.output_parsers.format_instructions import PYDANTIC_FORMAT_INSTRUCTIONS
 
 class PydanticOutputParserJa(PydanticOutputParser):
     def get_format_instructions(self) -> str:

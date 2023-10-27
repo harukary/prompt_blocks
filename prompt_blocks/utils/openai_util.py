@@ -1,6 +1,5 @@
-import openai, tiktoken, os, time, random
-from dotenv import load_dotenv
-load_dotenv()
+import openai, tiktoken, os, time, random, json
+from dotenv import load_dotenv, find_dotenv; _ = load_dotenv(find_dotenv())
 openai.api_key = os.environ['OPENAI_API_KEY']
 
 def get_embedding(text):
@@ -15,7 +14,23 @@ def get_embeddings(texts):
     )
     return [r["embedding"] for r in res["data"]]
 
-def chat_complete(messages, model="gpt-3.5-turbo-0613", max_tokens=None, temperature=0.5, stream=False, debug=False):
+def chat_complete(
+        messages,
+        debug=False,
+        model="gpt-3.5-turbo-0613",
+        max_tokens=None, temperature=0.5, stop=None,
+        stream=False,
+    ):
+    kwargs = {
+        'messages': messages,
+        'model': model,
+        'max_tokens': max_tokens,
+        'temperature': temperature,
+        'max_tokens': max_tokens,
+        'stop': stop,
+        'stream': stream,
+    }
+    log = None
     if debug:
         for m in messages:
             print(m["role"],'\t\t',"-"*30)
@@ -25,7 +40,7 @@ def chat_complete(messages, model="gpt-3.5-turbo-0613", max_tokens=None, tempera
     if stream:
         res = ''
         # finish_reason = None
-        for chunk in openai.ChatCompletion.create(model="gpt-3.5-turbo-0613", messages=messages, temperature=temperature, max_tokens=max_tokens, stream=True,):
+        for chunk in openai.ChatCompletion.create(**kwargs):
             # print(chunk)
             if 'content' in chunk["choices"][0]["delta"].keys():
                 content = chunk["choices"][0]["delta"]['content']
@@ -40,15 +55,65 @@ def chat_complete(messages, model="gpt-3.5-turbo-0613", max_tokens=None, tempera
         if debug:
             num_tokens = num_tokens_from_messages(messages, model)
             print('input:',num_tokens,'output:',max_tokens)
-        response = openai.ChatCompletion.create(
-            model=model, messages=messages,
-            temperature=temperature, max_tokens=max_tokens
-        )
+        start_time = time.time()
+        response = openai.ChatCompletion.create(**kwargs)
+        end_time = time.time(); elapsed_time = end_time - start_time
         res = response.choices[0].message.content
+        log = {
+            'usage': response.usage,
+            'elapsed_time': elapsed_time
+        }
         if debug:
             print('assistant','\t',"-"*30,'tokens:',response.usage.total_tokens)
             print(res, '\n')
-    return res
+    return res,log
+
+def chat_complete_with_functions(
+        messages,
+        debug=False,
+        model="gpt-3.5-turbo-0613",
+        max_tokens=None, temperature=0.5, stop=None,
+        stream=False,
+        functions=None, function_call='none'
+    ):
+    kwargs = {
+        'messages': messages,
+        'model': model,
+        'max_tokens': max_tokens,
+        'temperature': temperature,
+        'max_tokens': max_tokens,
+        'stop': stop,
+        'stream': stream,
+    }
+    if functions is not None:
+        kwargs['functions'] = functions
+        kwargs['function_call'] = function_call
+    usage = None
+    if debug:
+        for m in messages:
+            print(m["role"],'\t\t',"-"*30)
+            print(m["content"])
+            print()
+        print('assistant','\t',"-"*30)
+    if debug:
+        num_tokens = num_tokens_from_messages(messages, model)
+        print('input:',num_tokens,'output:',max_tokens)
+    response = openai.ChatCompletion.create(**kwargs)
+    response_message = response.choices[0].message
+    if response_message.get("function_call"):
+        function_name = response_message["function_call"]["name"]
+        function_args = json.loads(response_message["function_call"]["arguments"])
+        res = {'function': {
+            'name': function_name,
+            'args': function_args,
+        }}
+    else:
+        res = {'response': response_message.content}
+    usage = response.usage
+    if debug:
+        print('assistant','\t',"-"*30,'tokens:',response.usage.total_tokens)
+        print(res, '\n')
+    return res,usage
 
 def num_tokens_from_messages(messages, model="gpt-3.5-turbo-0613"):
     """Return the number of tokens used by a list of messages."""
@@ -99,46 +164,47 @@ def num_tokens_from_string(string: str, model: str='gpt-3.5-turbo-0613') -> int:
 # define a retry decorator
 def retry_with_exponential_backoff(
     func,
-    initial_delay: float = 1,
+    initial_delay: float = 4,
     exponential_base: float = 2,
     jitter: bool = True,
     max_retries: int = 10,
-    errors: tuple = (openai.error.RateLimitError,),
+    errors: tuple = (
+       openai.error.RateLimitError,
+       openai.error.APIError,
+       openai.error.TryAgain,
+       openai.error.ServiceUnavailableError,
+       openai.error.Timeout
+    ),
 ):
     """Retry a function with exponential backoff."""
-
     def wrapper(*args, **kwargs):
         # Initialize variables
         num_retries = 0
         delay = initial_delay
-
         # Loop until a successful response or max_retries is hit or an exception is raised
         while True:
             try:
                 return func(*args, **kwargs)
-
             # Retry on specified errors
             except errors as e:
                 # Increment retries
                 num_retries += 1
-
                 # Check if max retries has been reached
                 if num_retries > max_retries:
                     raise Exception(
                         f"Maximum number of retries ({max_retries}) exceeded."
                     )
-
                 # Increment the delay
                 delay *= exponential_base * (1 + jitter * random.random())
-
+                print(e, delay)
                 # Sleep for the delay
                 time.sleep(delay)
-
             # Raise exceptions for any errors not specified
             except Exception as e:
                 raise e
     return wrapper
 
 @retry_with_exponential_backoff
-def chat_complete_with_backoff(**kwargs):
-    return chat_complete(**kwargs)
+def chat_complete_with_backoff(messages, **kwargs):
+    # print(kwargs)
+    return chat_complete(messages, **kwargs)
